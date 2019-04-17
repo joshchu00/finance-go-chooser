@@ -2,9 +2,7 @@ package twse
 
 import (
 	"fmt"
-	"log"
 	"strconv"
-	"time"
 
 	"github.com/golang/protobuf/proto"
 	"github.com/joshchu00/finance-go-common/cassandra"
@@ -15,19 +13,9 @@ import (
 	protobuf "github.com/joshchu00/finance-protobuf/inside"
 )
 
-var location *time.Location
-
-func Init() {
-	var err error
-	location, err = time.LoadLocation("Asia/Taipei")
-	if err != nil {
-		log.Fatalln("FATAL", "Get location error:", err)
-	}
-}
-
 func Process(symbol string, period string, ts int64, client *cassandra.Client, producer *kafka.Producer, topic string) (err error) {
 
-	logger.Info(fmt.Sprintf("%s: %s", "Starting twse process...", datetime.GetTimeString(ts, location)))
+	logger.Info(fmt.Sprintf("%s: %d %s", "Starting twse.Process...", ts, symbol))
 
 	var irs []*cassandra.IndicatorRow
 
@@ -92,26 +80,33 @@ func Process(symbol string, period string, ts int64, client *cassandra.Client, p
 				stg.Column,
 				string(value),
 			)
+		}
+	}
 
-			if value != strategy.LSMANIL {
+	lastI := len(irs) - 1
+	lastIR := irs[lastI]
+	lastValue := values[lastI]
 
-				message := &protobuf.Notifier{
-					Exchange: "TWSE",
-					Symbol:   symbol,
-					Period:   period,
-					Datetime: ts,
-					Strategy: "lsma",
-				}
+	if lastValue != strategy.LSMANIL {
 
-				var bytes []byte
+		message := &protobuf.Notifier{
+			Exchange: "TWSE",
+			Symbol:   symbol,
+			Period:   period,
+			Datetime: datetime.GetTimestamp(lastIR.Datetime),
+			Strategy: "lsma",
+		}
 
-				bytes, err = proto.Marshal(message)
-				if err != nil {
-					return
-				}
+		var bytes []byte
 
-				producer.Produce(topic, 0, bytes)
-			}
+		bytes, err = proto.Marshal(message)
+		if err != nil {
+			return
+		}
+
+		err = producer.Produce(topic, 0, bytes)
+		if err != nil {
+			return
 		}
 	}
 
